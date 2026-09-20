@@ -3,6 +3,10 @@
     "Level": "info",
     "Output": ""
   },
+  "GeoFiles": [
+    "geofile:geosite-category-cryptocurrency",
+    "geofile:geoip-cn"
+  ],
   "Cores": [
     {
       "Type": "sing",

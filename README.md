@@ -54,7 +54,7 @@ wget -N https://raw.githubusercontent.com/GinGer0408/V2bX-script/master/install.
 
 ### GeoFile 自动更新
 
-在主配置文件中增加 `GeoFiles`，每行只需要写一个 `geofile:` 声明，不需要填写下载地址或更新参数：
+默认配置模板已经包含以下 `GeoFiles`；以后只需要继续增加 `geofile:` 声明，不需要填写下载地址或更新参数：
 
 ```json
 {
