@@ -1,13 +1,17 @@
 package cmd
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"runtime"
+	"sync"
 	"syscall"
 
 	"github.com/InazumaV/V2bX/conf"
 	vCore "github.com/InazumaV/V2bX/core"
+	"github.com/InazumaV/V2bX/geofile"
 	"github.com/InazumaV/V2bX/limiter"
 	"github.com/InazumaV/V2bX/node"
 	log "github.com/sirupsen/logrus"
@@ -58,64 +62,101 @@ func serverHandle(_ *cobra.Command, _ []string) {
 		f, err := os.OpenFile(c.LogConfig.Output, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			log.WithField("err", err).Error("Open log file failed, using stdout instead")
+		} else {
+			log.SetOutput(f)
 		}
-		log.SetOutput(f)
 	}
 	limiter.Init()
 	log.Info("Start V2bX...")
-	vc, err := vCore.NewCore(c.CoresConfig)
-	if err != nil {
-		log.WithField("err", err).Error("new core failed")
+	geoManager := geofile.NewManager(nil)
+	geoState := &geoRuntimeState{}
+	if _, err = prepareGeoConfig(c, geoManager, geoState); err != nil {
+		log.WithField("err", geoReloadError(err)).Error("Prepare GeoFiles failed")
 		return
 	}
-	err = vc.Start()
-	if err != nil {
-		log.WithField("err", err).Error("Start core failed")
-		return
-	}
-	defer vc.Close()
-	log.Info("Core ", vc.Type(), " started")
+
+	var vc vCore.Core
 	nodes := node.New()
-	err = nodes.Start(c.NodeConfig, vc)
-	if err != nil {
-		log.WithField("err", err).Error("Run nodes failed")
+	var lifecycleMu sync.Mutex
+	startCore := func() error {
+		newCore, newCoreErr := vCore.NewCore(c.CoresConfig)
+		if newCoreErr != nil {
+			return fmt.Errorf("new core failed: %w", newCoreErr)
+		}
+		if newCoreErr = newCore.Start(); newCoreErr != nil {
+			_ = newCore.Close()
+			return fmt.Errorf("start core failed: %w", newCoreErr)
+		}
+		if newCoreErr = nodes.Start(c.NodeConfig, newCore); newCoreErr != nil {
+			_ = newCore.Close()
+			return fmt.Errorf("run nodes failed: %w", newCoreErr)
+		}
+		vc = newCore
+		log.Info("Core ", vc.Type(), " started")
+		log.Info("Nodes started")
+		return nil
+	}
+	if err = startCore(); err != nil {
+		log.WithField("err", err).Error("Start V2bX failed")
 		return
 	}
-	log.Info("Nodes started")
+
+	runtimeContext, cancelRuntime := context.WithCancel(context.Background())
+	defer cancelRuntime()
+	defer func() {
+		lifecycleMu.Lock()
+		defer lifecycleMu.Unlock()
+		nodes.Close()
+		if vc != nil {
+			if closeErr := vc.Close(); closeErr != nil {
+				log.WithField("err", closeErr).Error("Close core failed")
+			}
+		}
+	}()
+
 	xdns := os.Getenv("XRAY_DNS_PATH")
 	sdns := os.Getenv("SING_DNS_PATH")
+	reload := func(reason string, refreshGeo bool) {
+		lifecycleMu.Lock()
+		defer lifecycleMu.Unlock()
+
+		if refreshGeo {
+			if _, refreshErr := prepareGeoConfig(c, geoManager, geoState); refreshErr != nil {
+				log.WithField("err", geoReloadError(refreshErr)).Error("Prepare GeoFiles for reload failed")
+				return
+			}
+		}
+
+		nodes.Close()
+		if vc != nil {
+			if closeErr := vc.Close(); closeErr != nil {
+				log.WithField("err", closeErr).Error("Close core for reload failed")
+			}
+		}
+		vc = nil
+		if startErr := startCore(); startErr != nil {
+			log.WithFields(log.Fields{
+				"err":    startErr,
+				"reason": reason,
+			}).Error("Restart V2bX failed")
+			return
+		}
+		log.WithField("reason", reason).Info("V2bX reloaded")
+		runtime.GC()
+	}
+
 	if watch {
 		err = c.Watch(config, xdns, sdns, func() {
-			nodes.Close()
-			err = vc.Close()
-			if err != nil {
-				log.WithField("err", err).Error("Restart node failed")
-				return
-			}
-			vc, err = vCore.NewCore(c.CoresConfig)
-			if err != nil {
-				log.WithField("err", err).Error("New core failed")
-				return
-			}
-			err = vc.Start()
-			if err != nil {
-				log.WithField("err", err).Error("Start core failed")
-				return
-			}
-			log.Info("Core ", vc.Type(), " restarted")
-			err = nodes.Start(c.NodeConfig, vc)
-			if err != nil {
-				log.WithField("err", err).Error("Run nodes failed")
-				return
-			}
-			log.Info("Nodes restarted")
-			runtime.GC()
+			reload("config", true)
 		})
 		if err != nil {
 			log.WithField("err", err).Error("start watch failed")
 			return
 		}
 	}
+	startGeoUpdater(runtimeContext, geoManager, geoState, func() {
+		reload("GeoFile", false)
+	})
 	// clear memory
 	runtime.GC()
 	// wait exit signal

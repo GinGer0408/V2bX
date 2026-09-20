@@ -6,12 +6,14 @@ import (
 	"os"
 
 	"github.com/InazumaV/V2bX/common/json5"
+	"github.com/InazumaV/V2bX/geofile"
 
 	"encoding/json/v2"
 )
 
 type Conf struct {
 	LogConfig   LogConfig    `json:"Log"`
+	GeoFiles    []string     `json:"GeoFiles"`
 	CoresConfig []CoreConfig `json:"Cores"`
 	NodeConfig  []NodeConfig `json:"Nodes"`
 }
@@ -23,6 +25,12 @@ func New() *Conf {
 			Output: "",
 		},
 	}
+}
+
+// GeoFileSpecs returns the normalized GeoFiles declarations from the main
+// V2bX configuration.
+func (p *Conf) GeoFileSpecs() ([]geofile.Spec, error) {
+	return geofile.Normalize(p.GeoFiles)
 }
 
 func (p *Conf) LoadFromPath(filePath string) error {

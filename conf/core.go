@@ -2,11 +2,14 @@ package conf
 
 import (
 	"encoding/json"
+
+	"github.com/InazumaV/V2bX/geofile"
 )
 
 type CoreConfig struct {
 	Type            string           `json:"Type"`
 	Name            string           `json:"Name"`
+	GeoFiles        []geofile.Spec   `json:"-"`
 	XrayConfig      *XrayConfig      `json:"-"`
 	SingConfig      *SingConfig      `json:"-"`
 	Hysteria2Config *Hysteria2Config `json:"-"`

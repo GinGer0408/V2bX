@@ -47,8 +47,25 @@ A V2board node server based on multi core, modified from XrayR.
 ### 一键安装
 
 ```
-wget -N https://raw.githubusercontent.com/wyx2685/V2bX-script/master/install.sh && bash install.sh
+wget -N https://raw.githubusercontent.com/GinGer0408/V2bX-script/master/install.sh && bash install.sh
 ```
+
+该脚本会从 `GinGer0408/V2bX` 的 GitHub Release 下载二开版本，并保留 `/etc/V2bX/config.json`。发布新版本时，需要先发布 V2bX Release，再使用同一个命令安装或执行 `V2bX update` 更新。
+
+### GeoFile 自动更新
+
+在主配置文件中增加 `GeoFiles`，每行只需要写一个 `geofile:` 声明，不需要填写下载地址或更新参数：
+
+```json
+{
+  "GeoFiles": [
+    "geofile:geosite-category-cryptocurrency",
+    "geofile:geoip-cn"
+  ]
+}
+```
+
+Xray 会使用 v2rayN 同款的 `geoip.dat` / `geosite.dat` 源；Sing-box 会自动生成对应的远程 rule-set，并按每天一次更新。已有的 `route.json` 中出现 `geoip:` 或 `geosite:` 时，V2bX 也会自动准备相应的 Xray GeoFile。旧配置没有 `GeoFiles` 时保持原行为。
 
 ### 手动安装
 

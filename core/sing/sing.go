@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
+	"github.com/InazumaV/V2bX/geofile"
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/log"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/json"
+	"github.com/sagernet/sing/common/json/badoption"
 )
 
 var _ vCore.Core = (*Sing)(nil)
@@ -57,6 +60,7 @@ func New(c *conf.CoreConfig) (vCore.Core, error) {
 			return nil, fmt.Errorf("unmarshal original config error: %s", err)
 		}
 	}
+	applyGeoFiles(&options, c.GeoFiles)
 	options.Log = &option.LogOptions{
 		Disabled:  c.SingConfig.LogConfig.Disabled,
 		Level:     c.SingConfig.LogConfig.Level,
@@ -94,6 +98,42 @@ func New(c *conf.CoreConfig) (vCore.Core, error) {
 		},
 		nodeReportMinTrafficBytes: make(map[string]int64),
 	}, nil
+}
+
+func applyGeoFiles(options *option.Options, specs []geofile.Spec) {
+	if options == nil || len(specs) == 0 {
+		return
+	}
+
+	if options.Route == nil {
+		options.Route = &option.RouteOptions{}
+	}
+	seen := make(map[string]struct{}, len(options.Route.RuleSet)+len(specs))
+	for _, ruleSet := range options.Route.RuleSet {
+		seen[ruleSet.Tag] = struct{}{}
+	}
+
+	for _, spec := range specs {
+		url, ok := spec.RuleSetURL()
+		if !ok {
+			continue
+		}
+		tag := spec.RuleSetTag()
+		if _, exists := seen[tag]; exists {
+			continue
+		}
+		options.Route.RuleSet = append(options.Route.RuleSet, option.RuleSet{
+			Type:   "remote",
+			Tag:    tag,
+			Format: "binary",
+			RemoteOptions: option.RemoteRuleSet{
+				URL:            url,
+				DownloadDetour: "direct",
+				UpdateInterval: badoption.Duration(24 * time.Hour),
+			},
+		})
+		seen[tag] = struct{}{}
+	}
 }
 
 func (b *Sing) Start() error {
